@@ -1,0 +1,12 @@
+# Vagrant internals
+.vagrant/
+
+# K3s sensitive files
+node-token
+.confs/
+
+# Shell & editor noise
+*.log
+.DS_Store
+*.swp
+*.swo

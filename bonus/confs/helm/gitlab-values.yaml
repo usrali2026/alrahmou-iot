@@ -1,0 +1,55 @@
+global:
+  edition: ce
+  hosts:
+    domain: localho.st
+    https: false
+  ingress:
+    configureCertmanager: false
+    tls:
+      enabled: false
+  kas:
+    enabled: false
+
+certmanager:
+  install: false
+
+nginx-ingress:
+  enabled: false
+
+prometheus:
+  install: false
+
+gitlab-runner:
+  install: false
+
+gitlab:
+  gitaly:
+    persistence:
+      size: 2Gi
+  toolbox:
+    backups:
+      objectStorage:
+        config:
+          secret: ""
+  webservice:
+    minReplicas: 1
+    maxReplicas: 1
+    service:
+      type: ClusterIP
+
+registry:
+  enabled: false
+
+minio:
+  persistence:
+    size: 2Gi
+
+postgresql:
+  primary:
+    persistence:
+      size: 2Gi
+
+redis:
+  master:
+    persistence:
+      size: 1Gi

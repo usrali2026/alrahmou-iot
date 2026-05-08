@@ -9,9 +9,9 @@ spec:
     namespace: dev
     server: https://kubernetes.default.svc
   source:
-    repoURL: https://github.com/usrali2026/alrahmou-p3.git
+    repoURL: https://github.com/usrali2026/Inception_of_Things_alrahmou.git
     targetRevision: HEAD
-    path: confs
+    path: p3/confs
   syncPolicy:
     automated:
       prune: true

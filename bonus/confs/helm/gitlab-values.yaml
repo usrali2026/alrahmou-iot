@@ -1,15 +1,30 @@
 global:
   edition: ce
+
   hosts:
-    domain: localho.st
+    domain: localhost
     https: false
+
   ingress:
     configureCertmanager: false
-    tls:
-      enabled: false
-  kas:
-    enabled: false
 
+  psql:
+    host: gitlab-postgresql
+    port: 5432
+    password:
+      secret: gitlab-postgresql-password
+      key: password
+
+  redis:
+    host: gitlab-redis-master
+
+  appConfig:
+    enableUsagePing: false
+    enableSeatLink: false
+
+# -----------------------------
+# DISABLED HEAVY COMPONENTS
+# -----------------------------
 certmanager:
   install: false
 
@@ -19,37 +34,99 @@ nginx-ingress:
 prometheus:
   install: false
 
-gitlab-runner:
-  install: false
-
-gitlab:
-  gitaly:
-    persistence:
-      size: 2Gi
-  toolbox:
-    backups:
-      objectStorage:
-        config:
-          secret: ""
-  webservice:
-    minReplicas: 1
-    maxReplicas: 1
-    service:
-      type: ClusterIP
-
 registry:
   enabled: false
 
-minio:
-  persistence:
-    size: 2Gi
+gitlab-runner:
+  install: false
 
+# -----------------------------
+# CORE SERVICES LIGHT MODE
+# -----------------------------
+gitlab:
+  webservice:
+    replicas: 1
+    minReplicas: 1
+    maxReplicas: 1
+    resources:
+      requests:
+        cpu: 100m
+        memory: 512Mi
+      limits:
+        cpu: 500m
+        memory: 1Gi
+
+  sidekiq:
+    replicas: 1
+    resources:
+      requests:
+        cpu: 100m
+        memory: 512Mi
+      limits:
+        cpu: 500m
+        memory: 1Gi
+
+  toolbox:
+    enabled: true
+
+  migrations:
+    resources:
+      requests:
+        cpu: 100m
+        memory: 256Mi
+      limits:
+        cpu: 300m
+        memory: 512Mi
+
+# -----------------------------
+# DATABASE (IMPORTANT STABILITY FIX)
+# -----------------------------
 postgresql:
+  install: true
   primary:
     persistence:
-      size: 2Gi
+      enabled: false
+    resources:
+      requests:
+        cpu: 100m
+        memory: 256Mi
+      limits:
+        cpu: 500m
+        memory: 512Mi
 
+# -----------------------------
+# REDIS (CRASH FIX)
+# -----------------------------
 redis:
+  install: true
   master:
     persistence:
-      size: 1Gi
+      enabled: false
+    resources:
+      requests:
+        cpu: 50m
+        memory: 128Mi
+      limits:
+        cpu: 200m
+        memory: 256Mi
+
+# -----------------------------
+# GITALY (lightened)
+# -----------------------------
+gitaly:
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
+# -----------------------------
+# DISABLE AUTO SCALING (IMPORTANT)
+# -----------------------------
+gitlab-exporter:
+  enabled: false
+
+gitlab-shell:
+  replicas: 1

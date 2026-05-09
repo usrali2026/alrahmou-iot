@@ -1,77 +1,70 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
-TOKEN="${GITLAB_BOOTSTRAP_TOKEN:-glpat-iot-bonus-token-424242}"
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
-echo "==> Creating local GitLab project root/iot-bonus"
+echo "==> Waiting for GitLab toolbox"
+kubectl -n gitlab wait --for=condition=available deployment/gitlab-toolbox --timeout=900s
 
-DEPLOYMENT_CONTENT="$(sed 's/\\/\\\\/g; s/"/\\"/g' "${REPO_ROOT}/gitlab-seed/deployment.yaml")"
-SERVICE_CONTENT="$(sed 's/\\/\\\\/g; s/"/\\"/g' "${REPO_ROOT}/gitlab-seed/service.yaml")"
+echo "==> Copying manifests into toolbox"
+kubectl -n gitlab exec deploy/gitlab-toolbox -- sh -lc 'mkdir -p /tmp/iot-confs'
+kubectl -n gitlab exec -i deploy/gitlab-toolbox -- sh -lc 'cat > /tmp/iot-confs/deployment.yaml' < "${REPO_ROOT}/confs/deployment.yaml"
+kubectl -n gitlab exec -i deploy/gitlab-toolbox -- sh -lc 'cat > /tmp/iot-confs/service.yaml' < "${REPO_ROOT}/confs/service.yaml"
 
-kubectl -n gitlab exec -i deployment/gitlab-toolbox -- gitlab-rails runner - <<RUBY
-user = User.find_by_username!("root")
+echo "==> Seeding root/iot-bonus project (idempotent)"
+kubectl -n gitlab exec -i deploy/gitlab-toolbox -- sh -lc 'gitlab-rails runner -' <<'RUBY'
+user = User.find_by_username('root')
+raise 'root user not found' unless user
 
-project = Project.find_by_full_path("root/iot-bonus")
-unless project
+project = Project.find_by_full_path('root/iot-bonus')
+if project.nil?
   project = Projects::CreateService.new(
     user,
     {
-    name: "iot-bonus",
-    path: "iot-bonus",
-    namespace_id: user.namespace.id,
-    visibility_level: Gitlab::VisibilityLevel::PUBLIC,
-    initialize_with_readme: false
+      name: 'iot-bonus',
+      path: 'iot-bonus',
+      namespace_id: user.namespace.id,
+      visibility_level: Gitlab::VisibilityLevel::PUBLIC,
+      initialize_with_readme: true
     }
   ).execute
-  raise project.errors.full_messages.join(", ") unless project.persisted?
+
+  if project.nil? || project.errors.any?
+    raise "project creation failed: #{project&.errors&.full_messages&.join(', ')}"
+  end
 end
 
-unless project.repository_exists?
-  actions = [
-    {
-      action: "create",
-      file_path: "confs/deployment.yaml",
-      content: "${DEPLOYMENT_CONTENT}"
-    },
-    {
-      action: "create",
-      file_path: "confs/service.yaml",
-      content: "${SERVICE_CONTENT}"
-    }
-  ]
+branch = project.default_branch.presence || 'main'
 
-  params = {
-    branch_name: "main",
-    start_branch: nil,
-    commit_message: "Initial local GitOps manifests",
-    actions: actions
-  }
+def upsert_file(project, user, branch, path, content, message)
+  blob = project.repository.blob_at_branch(branch, path)
 
-  result = Commits::CreateService.new(project, user, params).execute
-
-  raise result[:message].to_s unless result[:status] == :success
+  if blob
+    project.repository.update_file(
+      user,
+      path,
+      content,
+      branch_name: branch,
+      message: message
+    )
+  else
+    project.repository.create_file(
+      user,
+      path,
+      content,
+      branch_name: branch,
+      message: message
+    )
+  end
 end
 
-PersonalAccessToken.active.where(user: user, name: "iot-bonus-token").find_each(&:revoke!)
-token = user.personal_access_tokens.build(
-  name: "iot-bonus-token",
-  scopes: [:api, :read_repository],
-  expires_at: 1.year.from_now
-)
-token.set_token("${TOKEN}")
-token.save!
+deployment_yaml = File.read('/tmp/iot-confs/deployment.yaml')
+service_yaml = File.read('/tmp/iot-confs/service.yaml')
+
+upsert_file(project, user, branch, 'confs/deployment.yaml', deployment_yaml, 'chore: sync deployment manifest')
+upsert_file(project, user, branch, 'confs/service.yaml', service_yaml, 'chore: sync service manifest')
+
+puts "Seeded project #{project.full_path} on branch #{branch}"
 RUBY
 
-echo "==> Registering local GitLab repository in Argo CD"
-kubectl -n argocd create secret generic repo-local-gitlab-iot-bonus \
-  --from-literal=type=git \
-  --from-literal=url=http://gitlab-webservice-default.gitlab.svc.cluster.local:8181/root/iot-bonus.git \
-  --from-literal=username=root \
-  --from-literal=password="${TOKEN}" \
-  --dry-run=client -o yaml |
-  kubectl label -f - --local argocd.argoproj.io/secret-type=repository -o yaml |
-  kubectl apply -f -
-
-echo "==> Local GitLab project is ready"
+echo "==> Seed complete"

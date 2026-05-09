@@ -7,23 +7,17 @@ GitHub source with a local GitLab instance running inside the cluster.
 Local GitLab -> Argo CD -> K3d Kubernetes cluster -> dev namespace
 ```
 
-## What Is Added
+## What is created
 
 | Item | Purpose |
 |------|---------|
-| `gitlab` namespace | Dedicated namespace required by the bonus |
-| GitLab Helm chart | Installs the latest chart published by GitLab's official Helm repo |
+| `gitlab` namespace | Dedicated namespace for the GitLab chart |
+| GitLab Helm release | Runs GitLab, PostgreSQL, Redis, toolbox, and webservice |
 | `root/iot-bonus` project | Local GitLab repository seeded with the app manifests |
-| Argo CD Application | Watches the local GitLab repository instead of GitHub |
+| Argo CD Application `wil-app` | Watches the local GitLab repository |
 
-The GitLab chart version is discovered at runtime with:
-
-```bash
-helm search repo gitlab/gitlab -o json
-```
-
-This follows GitLab's official chart guidance and avoids pinning an outdated
-release in the lab.
+The setup script also creates the app automatically, so you do not need to
+click **New App** in Argo CD.
 
 ## Prerequisites
 
@@ -36,67 +30,63 @@ The setup script installs:
 | Docker | Required by K3d |
 | kubectl | Kubernetes CLI |
 | k3d | Local Kubernetes cluster |
-| Helm | Installs GitLab |
-| jq | Parses Helm and GitLab API JSON |
+| Helm | Installs GitLab and Argo CD |
 
-## Quick Start
+## Quick start
 
 ```bash
 bash scripts/setup.sh
 ```
 
-If Docker group permissions were just added, log out and log back in, then run
-the script again.
+If Docker group permissions were just added, log out and log back in first.
 
-GitLab is large. The first install can take several minutes while images are
-downloaded and migrations run.
+The first install can take several minutes while images are downloaded and
+migrations run.
 
-## Local Services
+## Local services
 
-The playground app is exposed exactly like Part 3:
+The playground app is exposed here:
 
 ```text
 http://localhost:8888
 ```
 
-Expected response:
-
-```json
-{"status":"ok","message":"v1"}
-```
-
-Forward GitLab when you want the UI:
+GitLab UI:
 
 ```bash
-kubectl -n gitlab port-forward svc/gitlab-webservice-default 8081:8181
+kubectl -n gitlab port-forward svc/gitlab-webservice-default 8181:8181
 ```
 
 Open:
 
 ```text
-http://localhost:8081
+http://localhost:8181
 ```
 
-Login:
+Login credentials:
 
 ```text
 username: root
-password: GitLabRoot42!
+password: <decode the secret below>
 ```
 
-## Argo CD
-
-Get the Argo CD admin password:
+Get the password from the cluster:
 
 ```bash
-kubectl -n argocd get secret argocd-initial-admin-secret \
+kubectl -n gitlab get secret gitlab-gitlab-initial-root-password \
   -o jsonpath="{.data.password}" | base64 -d
 ```
 
-Forward the UI:
+Argo CD UI:
 
 ```bash
 kubectl -n argocd port-forward svc/argocd-server 8080:443
+```
+
+If port 8080 is already in use, use this instead:
+
+```bash
+kubectl -n argocd port-forward svc/argocd-server 8082:443
 ```
 
 Open:
@@ -105,71 +95,59 @@ Open:
 https://localhost:8080
 ```
 
-## Accessing the UIs
-
-To complete the bonus, access both ArgoCD and GitLab UIs, then make a version change to trigger
-the sync:
-
-### GitLab UI
-
-```bash
-kubectl -n gitlab port-forward svc/gitlab-webservice-default 8081:8181
-```
-
-Open: http://localhost:8081
-
-Login credentials:
+or, if you used the fallback port:
 
 ```text
-username: root
-password: GitLabRoot42!
+https://localhost:8082
 ```
 
-### ArgoCD UI
-
-```bash
-kubectl -n argocd port-forward svc/argocd-server 8080:443
-```
-
-Get the admin password:
+Get the Argo CD admin password:
 
 ```bash
 kubectl -n argocd get secret argocd-initial-admin-secret \
   -o jsonpath="{.data.password}" | base64 -d
 ```
 
-Open: https://localhost:8080
+## How the GitOps flow works
 
-### Making the Bonus Work
-
-1. In GitLab UI, navigate to `root/iot-bonus` project → Repository → confs/deployment.yaml
-2. Edit the file and change the image version:
-   - **v1 → v2**: Change `image: wil42/playground:v1` to `image: wil42/playground:v2`
-   - **v2 → v1**: Change it back from `v2` to `v1`
-3. Commit the change
-4. ArgoCD will automatically sync the change (syncPolicy has `selfHeal: true`)
-5. Verify in ArgoCD UI or check the deployment: `kubectl get deployment wil-playground -n dev -o yaml`
-
-## GitLab Repository Used By Argo CD
-
-Argo CD watches this in-cluster repository URL:
+Argo CD watches the in-cluster repository below:
 
 ```text
 http://gitlab-webservice-default.gitlab.svc.cluster.local:8181/root/iot-bonus.git
 ```
 
-The setup seeds the project with:
+The repository is seeded with:
 
 ```text
 confs/deployment.yaml
 confs/service.yaml
 ```
 
-To demonstrate the Part 3 update locally, edit the project in GitLab and change:
+To trigger a sync, edit `confs/deployment.yaml` in GitLab and change:
 
 ```yaml
 image: wil42/playground:v1
 ```
+
+to:
+
+```yaml
+image: wil42/playground:v2
+```
+
+Argo CD should sync automatically and update the deployment in `dev`.
+
+## Troubleshooting
+
+If the app does not appear in Argo CD, apply the manifest manually:
+
+```bash
+kubectl apply -f confs/app.yaml
+```
+
+If GitLab login fails, re-read the password secret from the cluster. The
+password shown in the setup output may differ from the chart-generated initial
+secret.
 
 to:
 

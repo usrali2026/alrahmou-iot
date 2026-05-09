@@ -1,24 +1,22 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-echo "==> Creating k3d cluster"
-
-if ! docker info >/dev/null 2>&1; then
-  echo "Docker is not available for the current user."
-  echo "Run scripts/install.sh, then log out and log back in before running this script."
-  exit 1
-fi
+echo "==> Creating k3d cluster (deterministic + DNS stable)"
 
 k3d cluster delete iot 2>/dev/null || true
 
 k3d cluster create iot \
+  --servers 1 \
+  --agents 1 \
   -p "8888:30080@loadbalancer" \
-  --agents 1
+  -p "8080:30080@loadbalancer" \
+  --k3s-arg "--resolv-conf=/etc/resolv.conf@server:*"
 
 echo "==> Creating namespaces"
 
-kubectl create namespace argocd || true
-kubectl create namespace dev || true
-kubectl create namespace gitlab || true
+kubectl create namespace argocd --dry-run=client -o yaml | kubectl apply -f -
+kubectl create namespace dev --dry-run=client -o yaml | kubectl apply -f -
+kubectl create namespace gitlab --dry-run=client -o yaml | kubectl apply -f -
 
+echo "==> Cluster ready"
 kubectl get ns

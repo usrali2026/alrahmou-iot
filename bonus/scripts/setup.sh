@@ -1,37 +1,54 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-echo "==> Running full bonus setup"
+log(){ echo -e "\n==> $1"; }
 
-missing_tools=()
-for tool in docker kubectl k3d helm jq; do
-  if ! command -v "${tool}" >/dev/null 2>&1; then
-    missing_tools+=("${tool}")
-  fi
-done
+run(){
+  log "$1"
+  bash "${ROOT_DIR}/$1"
+}
 
-if (( ${#missing_tools[@]} > 0 )); then
-  echo "==> Missing tools: ${missing_tools[*]}"
-  "${SCRIPT_DIR}/install.sh"
-else
-  echo "==> Required tools are already installed"
-fi
+check_kube(){
+  log "Checking Kubernetes cluster"
+  kubectl cluster-info >/dev/null 2>&1 || {
+    log "Cluster missing → rebuilding"
+    run cluster.sh
+  }
+}
 
-if ! docker info >/dev/null 2>&1; then
-  echo "Docker is installed, but it is not available for the current user session."
-  echo "Your user may need a fresh login session for the docker group to apply."
-  echo "Log out and log back in, then run this script again."
-  exit 1
-fi
+wait_ns(){
+  local ns=$1
+  log "Waiting namespace: $ns"
+  for i in {1..60}; do
+    kubectl get ns "$ns" >/dev/null 2>&1 && return 0
+    sleep 2
+  done
+  echo "Namespace $ns failed" && exit 1
+}
 
-"${SCRIPT_DIR}/cluster.sh"
-"${SCRIPT_DIR}/deploy-argocd.sh"
-"${SCRIPT_DIR}/deploy-gitlab.sh"
-"${SCRIPT_DIR}/seed-gitlab.sh"
-"${SCRIPT_DIR}/deploy-app.sh"
+echo "==> FULL 42 BONUS (SELF-HEALING MODE)"
 
-echo "==> Bonus setup complete"
-echo "==> Application: http://localhost:8888"
-echo "==> GitLab UI: kubectl -n gitlab port-forward svc/gitlab-webservice-default 8081:8181"
+check_kube
+
+run cluster.sh
+
+wait_ns argocd
+wait_ns gitlab
+wait_ns dev
+
+run deploy-argocd.sh
+run deploy-gitlab.sh
+
+run wait-ready.sh
+run seed-gitlab.sh
+run deploy-app.sh
+
+echo ""
+echo "======================================="
+echo "✔ BONUS READY (SELF-HEALING)"
+echo "======================================="
+echo "ArgoCD: http://localhost:8080"
+echo "GitLab:  http://localhost:8181"
+echo "App:     http://localhost:8888"

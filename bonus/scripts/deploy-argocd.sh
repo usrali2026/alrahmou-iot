@@ -1,21 +1,44 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-echo "==> Installing Argo CD"
+NS="argocd"
 
-kubectl apply --server-side --force-conflicts -n argocd -f \
-  https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/install.yaml
+echo "==> Installing Argo CD (self-healing Helm install)"
 
-echo "==> Waiting for Argo CD"
-kubectl wait --for=condition=available \
-  deployment/argocd-server -n argocd --timeout=300s
+kubectl create namespace "$NS" --dry-run=client -o yaml | kubectl apply -f -
 
-echo "==> Exposing Argo CD UI"
+echo "==> Adding Argo CD Helm repo"
+helm repo add argo https://argoproj.github.io/argo-helm >/dev/null 2>&1 || true
+helm repo update >/dev/null
 
-kubectl patch svc argocd-server -n argocd \
-  -p '{"spec": {"type": "NodePort"}}'
+echo "==> Installing Argo CD (primary attempt)"
 
-echo "==> Argo CD password:"
-kubectl -n argocd get secret argocd-initial-admin-secret \
+helm upgrade --install argocd argo/argo-cd \
+  -n "$NS" \
+  --create-namespace \
+  --set server.service.type=NodePort \
+  --set server.service.nodePortHttp=30880 \
+  --set server.service.nodePortHttps=30443 \
+  --set configs.params.server.insecure=true \
+  --wait \
+  --timeout 10m || {
+
+    echo "⚠ Primary install failed → retrying safe mode"
+
+    helm upgrade --install argocd argo/argo-cd \
+      -n "$NS" \
+      --wait \
+      --timeout 15m
+}
+
+echo "==> Waiting for Argo CD server"
+kubectl rollout status deploy/argocd-server -n "$NS" --timeout=300s
+
+echo "==> Argo CD ready"
+echo "UI: http://localhost:8080 (or :30880)"
+
+echo "==> Admin password:"
+kubectl -n "$NS" get secret argocd-initial-admin-secret \
   -o jsonpath="{.data.password}" | base64 -d
+
 echo

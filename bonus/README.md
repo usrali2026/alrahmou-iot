@@ -105,6 +105,51 @@ Open:
 https://localhost:8080
 ```
 
+## Accessing the UIs
+
+To complete the bonus, access both ArgoCD and GitLab UIs, then make a version change to trigger
+the sync:
+
+### GitLab UI
+
+```bash
+kubectl -n gitlab port-forward svc/gitlab-webservice-default 8081:8181
+```
+
+Open: http://localhost:8081
+
+Login credentials:
+
+```text
+username: root
+password: GitLabRoot42!
+```
+
+### ArgoCD UI
+
+```bash
+kubectl -n argocd port-forward svc/argocd-server 8080:443
+```
+
+Get the admin password:
+
+```bash
+kubectl -n argocd get secret argocd-initial-admin-secret \
+  -o jsonpath="{.data.password}" | base64 -d
+```
+
+Open: https://localhost:8080
+
+### Making the Bonus Work
+
+1. In GitLab UI, navigate to `root/iot-bonus` project → Repository → confs/deployment.yaml
+2. Edit the file and change the image version:
+   - **v1 → v2**: Change `image: wil42/playground:v1` to `image: wil42/playground:v2`
+   - **v2 → v1**: Change it back from `v2` to `v1`
+3. Commit the change
+4. ArgoCD will automatically sync the change (syncPolicy has `selfHeal: true`)
+5. Verify in ArgoCD UI or check the deployment: `kubectl get deployment wil-playground -n dev -o yaml`
+
 ## GitLab Repository Used By Argo CD
 
 Argo CD watches this in-cluster repository URL:

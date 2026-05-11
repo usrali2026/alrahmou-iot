@@ -149,6 +149,8 @@ global:
   hosts:
     domain: ${GITLAB_DOMAIN}
     https: false
+    gitlab:
+      name: ${GITLAB_DOMAIN}
   psql:
     host: gitlab-postgresql
     port: 5432
@@ -165,6 +167,12 @@ global:
       enabled: true
       secret: gitlab-redis-password
       key: password
+
+  kas:
+    enabled: false
+
+  registry:
+    enabled: false
 
   # 🔥 IMPORTANT: disables external ingress complexity
   ingress:
@@ -185,6 +193,15 @@ nginx-ingress:
 gitlab-runner:
   install: false
 
+prometheus:
+  install: false
+
+registry:
+  enabled: false
+
+gitlab-exporter:
+  enabled: false
+
 redis:
   install: false
 
@@ -200,10 +217,45 @@ minio:
     enabled: false
 
 gitlab:
+  kas:
+    enabled: false
+
   migrations:
     initialRootPassword:
       secret: gitlab-root-password
       key: password
+
+  webservice:
+    minReplicas: 1
+    maxReplicas: 1
+    replicas: 1
+    resources:
+      requests:
+        cpu: 100m
+        memory: 1024Mi
+      limits:
+        cpu: 1000m
+        memory: 3072Mi
+
+  sidekiq:
+    minReplicas: 1
+    maxReplicas: 1
+    replicas: 1
+    resources:
+      requests:
+        cpu: 100m
+        memory: 768Mi
+      limits:
+        cpu: 1000m
+        memory: 2048Mi
+
+  gitlab-shell:
+    minReplicas: 1
+    maxReplicas: 1
+    replicas: 1
+
+  gitlab-exporter:
+    enabled: false
 EOF
 
 # -----------------------------
@@ -245,6 +297,18 @@ kubectl -n "${NAMESPACE}" wait --for=condition=available \
   deployment/gitlab-toolbox --timeout=1800s || true
 
 # -----------------------------
+# Browser access
+# -----------------------------
+echo "==> Exposing GitLab UI on http://localhost:8181"
+
+kubectl -n "${NAMESPACE}" patch svc gitlab-webservice-default \
+  --type=json \
+  -p='[
+    {"op":"replace","path":"/spec/type","value":"NodePort"},
+    {"op":"add","path":"/spec/ports/1/nodePort","value":30881}
+  ]' >/dev/null
+
+# -----------------------------
 # Status
 # -----------------------------
 echo ""
@@ -254,5 +318,4 @@ echo "======================================="
 echo "Root password: ${ROOT_PASSWORD}"
 echo ""
 echo "Access:"
-echo "kubectl -n gitlab port-forward svc/gitlab-webservice-default 8181:8181"
-echo "http://127.0.0.1:8181"
+echo "http://localhost:8181"

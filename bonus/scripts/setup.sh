@@ -15,7 +15,10 @@ check_kube(){
   kubectl cluster-info >/dev/null 2>&1 || {
     log "Cluster missing → rebuilding"
     run cluster.sh
+    return
   }
+  log "Cluster found → rebuilding"
+  run cluster.sh
 }
 
 wait_ns(){
@@ -31,8 +34,6 @@ wait_ns(){
 echo "==> FULL 42 BONUS (SELF-HEALING MODE)"
 
 check_kube
-
-run cluster.sh
 
 wait_ns argocd
 wait_ns gitlab

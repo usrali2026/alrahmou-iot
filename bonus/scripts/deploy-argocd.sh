@@ -19,7 +19,7 @@ helm upgrade --install argocd argo/argo-cd \
   --set server.service.type=NodePort \
   --set server.service.nodePortHttp=30880 \
   --set server.service.nodePortHttps=30443 \
-  --set configs.params.server.insecure=true \
+  --set configs.params.server\\.insecure=true \
   --wait \
   --timeout 10m || {
 
@@ -34,8 +34,23 @@ helm upgrade --install argocd argo/argo-cd \
 echo "==> Waiting for Argo CD server"
 kubectl rollout status deploy/argocd-server -n "$NS" --timeout=300s
 
+echo "==> Exposing Argo CD UI on http://localhost:8080"
+kubectl -n "$NS" patch configmap argocd-cmd-params-cm \
+  --type=merge \
+  -p='{"data":{"server.insecure":"true"}}' >/dev/null
+
+kubectl -n "$NS" patch svc argocd-server \
+  --type=json \
+  -p='[
+    {"op":"replace","path":"/spec/type","value":"NodePort"},
+    {"op":"add","path":"/spec/ports/0/nodePort","value":30880}
+  ]' >/dev/null
+
+kubectl rollout restart deploy/argocd-server -n "$NS" >/dev/null
+kubectl rollout status deploy/argocd-server -n "$NS" --timeout=300s
+
 echo "==> Argo CD ready"
-echo "UI: http://localhost:8080 (or :30880)"
+echo "UI: http://localhost:8080"
 
 echo "==> Admin password:"
 kubectl -n "$NS" get secret argocd-initial-admin-secret \

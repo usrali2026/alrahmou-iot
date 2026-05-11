@@ -5,7 +5,11 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 echo "==> Running full Part 3 setup"
 
-"${SCRIPT_DIR}/install.sh"
+if ! command -v docker >/dev/null 2>&1 ||
+   ! command -v kubectl >/dev/null 2>&1 ||
+   ! command -v k3d >/dev/null 2>&1; then
+  "${SCRIPT_DIR}/install.sh"
+fi
 
 if ! docker info >/dev/null 2>&1; then
   echo "Docker is installed, but it is not available for the current user session."
@@ -25,11 +29,6 @@ echo ""
 echo "Application:"
 echo "http://localhost:8888"
 echo ""
-echo "To access ArgoCD UI:"
-echo ""
-echo "Run inside the VM:"
-echo "kubectl port-forward svc/argocd-server -n argocd 8080:80 --address 0.0.0.0"
-echo ""
-echo "Then open from the HOST browser:"
-echo "http://127.0.0.1:8080"
+echo "ArgoCD UI:"
+echo "http://localhost:8080"
 echo ""

@@ -9,7 +9,8 @@ k3d cluster create iot \
   --servers 1 \
   --agents 1 \
   -p "8888:30080@loadbalancer" \
-  -p "8080:30080@loadbalancer" \
+  -p "8080:30880@loadbalancer" \
+  -p "8181:30881@loadbalancer" \
   --k3s-arg "--resolv-conf=/etc/resolv.conf@server:*"
 
 echo "==> Creating namespaces"

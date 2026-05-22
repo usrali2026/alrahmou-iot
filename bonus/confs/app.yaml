@@ -11,7 +11,7 @@ spec:
   source:
     repoURL: http://gitlab-webservice-default.gitlab.svc.cluster.local:8181/root/iot-bonus.git
     targetRevision: main
-    path: confs
+    path: bonus/confs
   syncPolicy:
     automated:
       prune: true

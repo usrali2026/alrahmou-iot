@@ -10,7 +10,7 @@ spec:
     server: https://kubernetes.default.svc
   source:
     repoURL: http://gitlab-webservice-default.gitlab.svc.cluster.local:8181/root/iot-bonus.git
-    targetRevision: auto-push-1779477674
+    targetRevision: main
     path: bonus/confs
   syncPolicy:
     automated:

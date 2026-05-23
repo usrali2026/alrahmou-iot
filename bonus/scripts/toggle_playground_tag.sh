@@ -39,7 +39,7 @@ curl -s -X PUT \
   -d "branch=main&content=$ENCODED&commit_message=Toggle to $TAG" \
   "$API/projects/$PROJ/repository/files/deployment.yaml" > /dev/null
 
-echo "Updated to v$TAG in GitLab"
+echo "Updated to $TAG in GitLab"
 '
 
 # Trigger ArgoCD sync
@@ -50,4 +50,4 @@ kubectl patch app playground -n argocd --type merge \
 sleep 2
 kubectl delete pod -n dev -l app=playground --ignore-not-found > /dev/null 2>&1
 
-echo "Synced and pod restarted — app will show v$TAG in ~5 seconds"
+echo "Synced and pod restarted — app will show $TAG in ~5 seconds"

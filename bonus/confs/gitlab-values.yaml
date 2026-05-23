@@ -35,6 +35,10 @@ global:
   minio:
     enabled: true
 
+  appConfig:
+    initialDefaults:
+      signupEnabled: false
+
 nginx-ingress:
   enabled: false
 

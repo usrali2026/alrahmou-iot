@@ -4,7 +4,7 @@
 #  Docker · kubectl · Helm · K3d · Argo CD · GitLab CE (Helm)
 #  GitLab replaces GitHub as the GitOps source (ns: gitlab, dev, argocd)
 #
-#  Ports: 8888 → playground app | 8929 → GitLab UI (gitlab.local)
+#  Ports: 8888 → playground app | 8181 → GitLab UI (gitlab.local)
 #  Run: sudo ./bonus/scripts/install.sh  (needs root for /etc/hosts)
 # ─────────────────────────────────────────────────────────────────────────────
 set -euo pipefail
@@ -83,7 +83,7 @@ create_cluster() {
   echo "[install] Creating K3d cluster '${CLUSTER_NAME}'..."
   k3d cluster create "${CLUSTER_NAME}" \
     --port "8888:30888@loadbalancer" \
-    --port "8929:80@loadbalancer" \
+    --port "8181:80@loadbalancer" \
     --wait
   k3d kubeconfig merge "${CLUSTER_NAME}" --kubeconfig-merge-default
   fix_kubeconfig_ownership
@@ -171,7 +171,7 @@ bash "${SCRIPT_DIR}/gitlab_init.sh"
 echo ""
 echo "══════════════════════════════════════════════════════════════════"
 echo " Bonus ready"
-echo " GitLab    : http://gitlab.local:8929  (root + password below)"
+echo " GitLab    : http://gitlab.local:8181  (root + password below)"
 echo " App       : http://localhost:8888/"
 echo " Argo CD   : kubectl port-forward svc/argocd-server -n argocd 8080:443"
 echo "             → https://localhost:8080/"

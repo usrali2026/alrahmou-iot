@@ -126,7 +126,7 @@ wait_application_synced() {
 
   echo "[install] WARN: Application not Synced/Healthy yet."
   kubectl get application "${APP_NAME}" -n argocd -o wide 2>/dev/null || true
-  echo "[install] Ensure the GitOps repo has deployment.yaml at repo root:"
+  echo "[install] Ensure the GitOps repo has deployment.yaml under p3/confs:"
   echo "[install]   ${GITOPS_REPO}"
   echo "[install] Run: ./p3/scripts/push-gitops.sh"
   return 1
@@ -186,7 +186,7 @@ install_argocd() {
   echo " Or run: ./p3/scripts/access.sh"
   echo ""
   echo " Upgrade demo (in GitOps repo, then push):"
-  echo "   sed -i 's/playground:v1/playground:v2/' deployment.yaml"
+  echo "   sed -i 's/playground:v1/playground:v2/' p3/confs/deployment.yaml"
   echo "   git commit -am v2 && git push"
   echo "──────────────────────────────────────────────────────"
 }

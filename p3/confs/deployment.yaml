@@ -3,7 +3,7 @@
 #  To upgrade: change the image tag (v1 → v2) and git push.
 #  ArgoCD will detect the diff and perform a rolling update automatically.
 #
-#  GitOps repo (Argo CD source): push-gitops.sh copies from p3/gitops/
+#  GitOps repo (Argo CD source): push-gitops.sh copies from p3/confs/
 #  Version bump in that repo:
 #    sed -i 's/playground:v1/playground:v2/' deployment.yaml
 #    git add deployment.yaml && git commit -m "v2" && git push

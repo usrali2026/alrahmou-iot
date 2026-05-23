@@ -1,6 +1,6 @@
 ---
 # ─────────────────────────────────────────────────────────────────────────────
-#  Replace repoURL with your public GitHub repo (deployment.yaml at repo root).
+#  Replace repoURL with your public GitHub repo (deployment.yaml at p3/confs).
 #  Publish the manifest first: ./p3/scripts/push-gitops.sh
 #  Example: https://github.com/yourlogin/yourlogin-iot
 # ─────────────────────────────────────────────────────────────────────────────
@@ -15,7 +15,7 @@ spec:
   source:
     repoURL: https://github.com/usrali2026/alrahmou-iot.git
     targetRevision: HEAD
-    path: .   # deployment.yaml is at the root of the repo
+    path: p3/confs   # deployment.yaml lives in p3/confs
 
   destination:
     server: https://kubernetes.default.svc

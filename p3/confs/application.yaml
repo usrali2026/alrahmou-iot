@@ -15,7 +15,7 @@ spec:
   source:
     repoURL: https://github.com/usrali2026/alrahmou-iot.git
     targetRevision: HEAD
-    path: p3/confs/overlays/dev   # kustomize overlay for dev
+    path: p3/confs   # Kustomize root; examples are excluded via kustomization
 
   destination:
     server: https://kubernetes.default.svc
@@ -27,4 +27,5 @@ spec:
       selfHeal: true   # revert manual kubectl changes
     syncOptions:
     - CreateNamespace=true
+
 

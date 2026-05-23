@@ -118,25 +118,30 @@ create_pat() {
 create_project() {
   echo "[gitlab_init] Creating GitLab project '${PROJECT_NAME}'..."
 
-  RESPONSE=$(curl -sf --request POST \
-    "${GITLAB_EXTERNAL}/api/v4/projects" \
-    --header "PRIVATE-TOKEN: ${PAT}" \
-    --header "Content-Type: application/json" \
-    --data "{
-      \"name\": \"${PROJECT_NAME}\",
-      \"path\": \"${PROJECT_NAME}\",
-      \"visibility\": \"public\",
-      \"default_branch\": \"main\",
-      \"initialize_with_readme\": false
-    }" 2>/dev/null || true)
+  local RESPONSE HTTP_STATUS
 
-  # Ignore "already exists" (409)
-  if echo "${RESPONSE}" | grep -q '"id"'; then
+  RESPONSE=$(kubectl exec -n gitlab deploy/gitlab-toolbox -- \
+    curl -sS -w $'\n%{http_code}' --request POST \
+      "${GITLAB_INTERNAL}/api/v4/projects" \
+      --header "PRIVATE-TOKEN: ${PAT}" \
+      --header "Content-Type: application/json" \
+      --data "{
+        \"name\": \"${PROJECT_NAME}\",
+        \"path\": \"${PROJECT_NAME}\",
+        \"visibility\": \"public\",
+        \"default_branch\": \"main\",
+        \"initialize_with_readme\": false
+      }" ) || true
+
+  HTTP_STATUS="${RESPONSE##*$'\n'}"
+  RESPONSE="${RESPONSE%$'\n'*}"
+
+  if [ "${HTTP_STATUS}" = "201" ] && echo "${RESPONSE}" | grep -q '"id"'; then
     echo "[gitlab_init] Project '${PROJECT_NAME}' created."
-  elif echo "${RESPONSE}" | grep -q "has already been taken"; then
+  elif [ "${HTTP_STATUS}" = "409" ] || echo "${RESPONSE}" | grep -q "has already been taken"; then
     echo "[gitlab_init] Project '${PROJECT_NAME}' already exists."
   else
-    echo "[gitlab_init] WARNING: Unexpected project creation response:"
+    echo "[gitlab_init] WARNING: Unexpected project creation response (HTTP ${HTTP_STATUS}):"
     echo "${RESPONSE}"
   fi
 }

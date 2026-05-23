@@ -27,7 +27,7 @@ fi
 
 echo "=== GitLab ==="
 if grep -q '[[:space:]]gitlab\.local' /etc/hosts 2>/dev/null; then
-  curl -sf --max-time 5 http://gitlab.local:8929/-/health && echo " OK" || echo " not ready yet (GitLab still starting?)"
+  curl -sf --max-time 5 http://gitlab.local:8181/-/health && echo " OK" || echo " not ready yet (GitLab still starting?)"
 else
   echo " missing gitlab.local in /etc/hosts — re-run: sudo bash ./bonus/scripts/install.sh"
 fi

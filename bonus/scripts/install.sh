@@ -167,12 +167,3 @@ else
 fi
 
 bash "${SCRIPT_DIR}/gitlab_init.sh"
-
-echo ""
-echo "══════════════════════════════════════════════════════════════════"
-echo " Bonus ready"
-echo " GitLab    : http://gitlab.local:8181  (root + password below)"
-echo " App       : http://localhost:8888/"
-echo " Argo CD   : kubectl port-forward svc/argocd-server -n argocd 8080:443"
-echo "             → https://localhost:8080/"
-echo "══════════════════════════════════════════════════════════════════"

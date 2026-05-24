@@ -5,13 +5,17 @@ metadata:
   name: apps-ingress
   namespace: default
 spec:
-  # Requests with no matching host rule fall through to app3
-  defaultBackend:
-    service:
-      name: app3
-      port:
-        number: 80
+  ingressClassName: traefik
   rules:
+  - http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: app3
+            port:
+              number: 80
   - host: app1.com
     http:
       paths:

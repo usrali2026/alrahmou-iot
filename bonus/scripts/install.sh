@@ -4,7 +4,7 @@
 #  Docker · kubectl · Helm · K3d · Argo CD · GitLab CE (Helm)
 #  GitLab replaces GitHub as the GitOps source (ns: gitlab, dev, argocd)
 #
-#  Ports: 8888 → playground app | 8181 → GitLab UI (gitlab.local)
+#  Ports: 8888 → playground app | 8181 → GitLab UI (gitlab.localhost)
 #  Run: sudo ./bonus/scripts/install.sh  (needs root for /etc/hosts)
 # ─────────────────────────────────────────────────────────────────────────────
 set -euo pipefail
@@ -92,10 +92,10 @@ create_cluster() {
 
 configure_hosts() {
   if ! grep -q "[[:space:]]gitlab\.local" /etc/hosts; then
-    echo "127.0.0.1 gitlab.local" >> /etc/hosts
-    echo "[install] Added gitlab.local to /etc/hosts."
+    echo "127.0.0.1 gitlab.localhost" >> /etc/hosts
+    echo "[install] Added gitlab.localhost to /etc/hosts."
   else
-    echo "[install] /etc/hosts already has gitlab.local."
+    echo "[install] /etc/hosts already has gitlab.localhost."
   fi
 }
 

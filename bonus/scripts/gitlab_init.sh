@@ -14,7 +14,7 @@
 #  Internal GitLab URL (used by ArgoCD within the cluster):
 #    http://gitlab-webservice-default.gitlab.svc.cluster.local:8181
 #  External GitLab URL (used by browsers / git on the host):
-#    http://gitlab.local:8181
+#    http://gitlab.localhost:8181
 # ─────────────────────────────────────────────────────────────────────────────
 set -euo pipefail
 
@@ -24,7 +24,7 @@ CONFS_DIR="${SCRIPT_DIR}/../confs"
 # Accessible from within the K3d cluster (ArgoCD, pods)
 GITLAB_INTERNAL="http://gitlab-webservice-default.gitlab.svc.cluster.local:8181"
 # Accessible from the host machine
-GITLAB_EXTERNAL="http://gitlab.local:8181"
+GITLAB_EXTERNAL="http://gitlab.localhost:8181"
 
 PROJECT_NAME="iot"
 PROJECT_PATH="root%2F${PROJECT_NAME}"   # URL-encoded "root/iot"
@@ -277,7 +277,7 @@ print_summary() {
   echo "   Repo     : ${GITLAB_EXTERNAL}/root/${PROJECT_NAME}"
   echo ""
   echo " Clone (from host):"
-  echo "  git clone http://root:${ROOT_PASSWORD}@gitlab.local:8181/root/${PROJECT_NAME}.git"
+  echo "  git clone http://root:${ROOT_PASSWORD}@gitlab.localhost:8181/root/${PROJECT_NAME}.git"
   echo ""
   echo " Version bump workflow (evaluation demo):"
   echo "   cd ${PROJECT_NAME}"

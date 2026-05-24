@@ -9,13 +9,13 @@ global:
   edition: ce
 
   hosts:
-    domain: gitlab.local
+    domain: gitlab.localhost
     https: false
     gitlab:
-      name: gitlab.local
+      name: gitlab.localhost
       https: false
     minio:
-      name: minio.gitlab.local
+      name: minio.gitlab.localhost
 
   gatewayApi:
     enabled: false
@@ -124,7 +124,7 @@ postgresql:
 # Cert-manager issuer email required by the GitLab chart for TLS
 # Set to a placeholder or your real email to receive certificate notices.
 certmanager-issuer:
-  email: admin@gitlab.local
+  email: admin@gitlab.localhost
 
 # Enable bundled services for a local demo (not for production)
 postgresql:

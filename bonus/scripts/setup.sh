@@ -4,8 +4,8 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 INSTALL_SCRIPT="${SCRIPT_DIR}/install.sh"
 ARGOCD_FORWARD_PID_FILE="${SCRIPT_DIR}/.argocd-port-forward.pid"
-GITLAB_FORWARD_PID_FILE="${SCRIPT_DIR}/.gitlab-port-forward.pid"
 ROOT_PASSWORD=""
+ARGOCD_PASSWORD=""
 
 cleanup_port() {
   local port="$1"
@@ -20,10 +20,9 @@ cleanup_port() {
 }
 
 cleanup_ports() {
-  # Free 8080 (ArgoCD) and 8181 (GitLab) managed by this script
-  # Port 8888 (app) is managed by k3d, we don't touch it
+  # Free 8080 (ArgoCD) managed by this script
+  # Port 8181 (GitLab) and 8888 (app) are managed by k3d, we don't touch them
   cleanup_port 8080
-  cleanup_port 8181
 }
 
 start_argocd_forward() {
@@ -44,27 +43,15 @@ start_argocd_forward() {
   echo "[setup] ArgoCD URL: https://localhost:8080"
 }
 
-start_gitlab_forward() {
-  if [[ -f "${GITLAB_FORWARD_PID_FILE}" ]]; then
-    local old_pid
-    old_pid=$(cat "${GITLAB_FORWARD_PID_FILE}" 2>/dev/null || true)
-    if [[ -n "${old_pid}" ]] && kill -0 "${old_pid}" 2>/dev/null; then
-      echo "[setup] GitLab port-forward already running (PID ${old_pid})."
-      return 0
-    fi
-  fi
-
-  echo "[setup] Starting GitLab port-forward on http://localhost:8181 ..."
-  nohup kubectl port-forward svc/gitlab-webservice-default -n gitlab 8181:8181 > /tmp/gitlab-port-forward.log 2>&1 &
-  local pf_pid=$!
-  echo "$pf_pid" > "${GITLAB_FORWARD_PID_FILE}"
-  sleep 2
-  echo "[setup] GitLab URL: http://localhost:8181"
-}
-
 get_root_password() {
   ROOT_PASSWORD=$(kubectl get secret gitlab-gitlab-initial-root-password \
     -n gitlab \
+    -o jsonpath='{.data.password}' | base64 -d)
+}
+
+get_argocd_password() {
+  ARGOCD_PASSWORD=$(kubectl get secret argocd-initial-admin-secret \
+    -n argocd \
     -o jsonpath='{.data.password}' | base64 -d)
 }
 
@@ -72,12 +59,14 @@ print_bonus_ready() {
   echo ""
   echo "══════════════════════════════════════════════════════════════════"
   echo " Bonus ready"
-  echo " GitLab    : http://localhost:8181  (root + password below)"
+  echo " GitLab    : http://gitlab.localhost:8181  (root + password below)"
   echo " App       : http://localhost:8888/"
   echo " Argo CD   : https://localhost:8080/"
   echo "══════════════════════════════════════════════════════════════════"
   echo ""
   echo " Root password: ${ROOT_PASSWORD}"
+  echo " ArgoCD user : admin"
+  echo " ArgoCD pass : ${ARGOCD_PASSWORD}"
   echo ""
 }
 
@@ -86,12 +75,12 @@ show_usage() {
 Usage: setup.sh [--install-only]
 
 Default flow:
-  1) Cleanup ports 8080, 8181 (managed by this script)
+  1) Cleanup port 8080 (ArgoCD only; GitLab and app are managed by k3d)
   2) Run install.sh (creates cluster, GitLab, ArgoCD)
-  3) Start port-forwards for GitLab (8181) and ArgoCD (8080)
+  3) Start the ArgoCD port-forward on https://localhost:8080
   4) Fetch root password and print summary with URLs
 
-Note: Port 8888 (app) is managed by k3d automatically.
+Note: GitLab is available at http://gitlab.localhost:8181 and the app at http://localhost:8888/.
 
 Options:
   --install-only  Run install.sh only (skip port-forwards and summary)
@@ -130,9 +119,9 @@ case "$mode" in
     ;;
   all)
     cleanup_ports
-    start_gitlab_forward
     run_install
     get_root_password
+    get_argocd_password
     start_argocd_forward
     print_bonus_ready
     ;;

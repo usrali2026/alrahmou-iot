@@ -1,8 +1,12 @@
 #!/bin/bash
 set -euo pipefail
 
-NET_IFACE="enp0s8"
 SERVER_IP="192.168.56.110"
+NET_IFACE="$(ip -o -4 addr show | awk -v ip="${SERVER_IP}" '$4 ~ "^" ip "\\/" {print $2; exit}')"
+
+if [[ -z "${NET_IFACE}" ]]; then
+  NET_IFACE="eth1"
+fi
 
 echo "[p2] Installing K3s in server mode..."
 curl -sfL https://get.k3s.io | \
@@ -19,7 +23,14 @@ until kubectl get nodes 2>/dev/null | grep -q " Ready"; do
 done
 
 echo "[p2] Deploying applications..."
-kubectl apply -f /vagrant/confs/
+MANIFESTS_DIR="/home/vagrant/confs"
+
+if [[ ! -d "${MANIFESTS_DIR}" ]]; then
+  echo "[p2] ERROR: manifests directory not found at ${MANIFESTS_DIR}"
+  exit 1
+fi
+
+kubectl apply -f "${MANIFESTS_DIR}/"
 
 echo "[p2] Waiting for all deployments to roll out..."
 kubectl rollout status deployment/app1 --timeout=120s

@@ -1,10 +1,14 @@
 # ─────────────────────────────────────────────
 #  Change LOGIN to your 42 login before running
 # ─────────────────────────────────────────────
-LOGIN = "login"
+LOGIN = "alrahmou"
 
 Vagrant.configure("2") do |config|
-  config.vm.box = "ubuntu/jammy64"
+  config.vm.box = "generic/ubuntu2204"
+  config.vm.box_check_update = false
+  # Disable the default synced folder for faster startup on Linux hosts
+  # (uncomment or change to `type: "nfs"` if you need host<->guest sharing)
+  config.vm.synced_folder ".", "/vagrant", disabled: true
 
   # ── Server (controller) ──────────────────────
   config.vm.define "#{LOGIN}S" do |server|
@@ -15,6 +19,11 @@ Vagrant.configure("2") do |config|
       v.name   = "#{LOGIN}S"
       v.memory = 1024
       v.cpus   = 1
+    end
+
+    server.vm.provider "libvirt" do |v|
+      v.cpus   = 1
+      v.memory = 1024
     end
 
     server.vm.provision "shell", path: "scripts/server.sh"
@@ -29,6 +38,11 @@ Vagrant.configure("2") do |config|
       v.name   = "#{LOGIN}SW"
       v.memory = 1024
       v.cpus   = 1
+    end
+
+    worker.vm.provider "libvirt" do |v|
+      v.cpus   = 1
+      v.memory = 1024
     end
 
     worker.vm.provision "shell", path: "scripts/worker.sh"

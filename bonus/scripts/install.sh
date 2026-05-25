@@ -35,30 +35,34 @@ fix_kubeconfig_ownership() {
 
 install_docker() {
   echo "[install] Installing Docker..."
-  apt-get update -qq
-  apt-get install -y -qq ca-certificates curl gnupg lsb-release
 
-  install -m 0755 -d /etc/apt/keyrings
-  curl -fsSL https://download.docker.com/linux/ubuntu/gpg \
-    | gpg --dearmor -o /etc/apt/keyrings/docker.gpg
-  chmod a+r /etc/apt/keyrings/docker.gpg
+  # get.docker.com requires root (via sudo/su). In some container/runtime environments,
+  # neither exists; in that case we abort early with actionable guidance.
+  if ! command -v sudo >/dev/null 2>&1 && ! command -v su >/dev/null 2>&1; then
+    echo "[install] ERROR: No sudo or su available; Docker installer cannot run."
+    echo "[install] Please ensure Docker Engine is installed and running, then re-run setup.sh."
+    echo "[install] Fedora steps (run as root/admin):"
+    echo "  dnf install -y docker"
+    echo "  systemctl enable --now docker"
+    echo "  usermod -aG docker ${USER} || true"
+    exit 1
+  fi
 
-  echo \
-    "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] \
-    https://download.docker.com/linux/ubuntu \
-    $(. /etc/os-release && echo "${VERSION_CODENAME}") stable" \
-    | tee /etc/apt/sources.list.d/docker.list > /dev/null
+  echo "[install] Installing Docker using get.docker.com..."
+  curl -fsSL https://get.docker.com | sh
+  systemctl enable --now docker || true
 
-  apt-get update -qq
-  apt-get install -y -qq docker-ce docker-ce-cli containerd.io docker-buildx-plugin
-  systemctl enable --now docker
+  # Ensure we have standard tools for later steps (best-effort).
+  command -v curl >/dev/null || true
 
   REAL_USER="${SUDO_USER:-${USER}}"
   if [ -n "${REAL_USER}" ] && [ "${REAL_USER}" != "root" ]; then
-    usermod -aG docker "${REAL_USER}"
+    usermod -aG docker "${REAL_USER}" || true
   fi
   echo "[install] Docker installed."
 }
+
+
 
 install_kubectl() {
   echo "[install] Installing kubectl..."

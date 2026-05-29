@@ -5,7 +5,7 @@
 #  GitLab replaces GitHub as the GitOps source (ns: gitlab, dev, argocd)
 #
 #  Ports: 8888 → playground app | 8181 → GitLab UI (gitlab.localhost) | 8080 → Argo CD
-#  Run: sudo ./bonus/scripts/install.sh  (needs root for /etc/hosts)
+#  Run: bash scripts/setup.sh  (sudo only if /etc/hosts needs updating on the VM)
 # ─────────────────────────────────────────────────────────────────────────────
 set -euo pipefail
 
@@ -66,9 +66,20 @@ install_docker() {
 
 install_kubectl() {
   echo "[install] Installing kubectl..."
+  local arch kube_arch
+  arch="$(uname -m)"
+  case "${arch}" in
+    x86_64|amd64) kube_arch=amd64 ;;
+    aarch64|arm64) kube_arch=arm64 ;;
+    armv7l|armv6l) kube_arch=arm ;;
+    *)
+      echo "[install] ERROR: Unsupported architecture for kubectl: ${arch}" >&2
+      exit 1
+      ;;
+  esac
   KUBE_VERSION=$(curl -sL https://dl.k8s.io/release/stable.txt)
   curl -sLo /tmp/kubectl \
-    "https://dl.k8s.io/release/${KUBE_VERSION}/bin/linux/amd64/kubectl"
+    "https://dl.k8s.io/release/${KUBE_VERSION}/bin/linux/${kube_arch}/kubectl"
   install -o root -g root -m 0755 /tmp/kubectl /usr/local/bin/kubectl
   rm -f /tmp/kubectl
 }
@@ -96,12 +107,23 @@ create_cluster() {
 }
 
 configure_hosts() {
-  if ! grep -q "[[:space:]]gitlab\.local" /etc/hosts; then
-    echo "127.0.0.1 gitlab.localhost" >> /etc/hosts
-    echo "[install] Added gitlab.localhost to /etc/hosts."
-  else
+  local hosts_line="127.0.0.1 gitlab.localhost"
+
+  if grep -q "[[:space:]]gitlab\.local" /etc/hosts 2>/dev/null; then
     echo "[install] /etc/hosts already has gitlab.localhost."
+    return 0
   fi
+
+  if [[ ! -w /etc/hosts ]]; then
+    echo "[install] WARN: Cannot write /etc/hosts (needs root on this machine)."
+    echo "[install]       Add manually:  ${hosts_line}"
+    echo "[install]       Example: echo '${hosts_line}' | sudo tee -a /etc/hosts"
+    echo "[install]       Host browser: add the same line on your host if GitLab URL does not resolve."
+    return 0
+  fi
+
+  echo "${hosts_line}" >> /etc/hosts
+  echo "[install] Added gitlab.localhost to /etc/hosts."
 }
 
 create_namespaces() {
@@ -126,12 +148,25 @@ install_argocd() {
 }
 
 expose_argocd_on_host() {
+  local argocd_nodeport=30443
+  local svc_type current_nodeport
+
   echo "[install] Exposing Argo CD on host port 8080 (k3d NodePort, reachable from host browser)..."
-  if [[ "$(kubectl get svc argocd-server -n argocd -o jsonpath='{.spec.type}')" != "NodePort" ]]; then
-    kubectl patch svc argocd-server -n argocd --type='json' -p='[
-      {"op":"replace","path":"/spec/type","value":"NodePort"},
-      {"op":"add","path":"/spec/ports/1/nodePort","value":30443}
-    ]'
+
+  svc_type=$(kubectl get svc argocd-server -n argocd -o jsonpath='{.spec.type}')
+  current_nodeport=$(kubectl get svc argocd-server -n argocd \
+    -o jsonpath='{.spec.ports[?(@.name=="https")].nodePort}')
+
+  if [[ "${svc_type}" != "NodePort" ]] || [[ "${current_nodeport}" != "${argocd_nodeport}" ]]; then
+    kubectl patch svc argocd-server -n argocd --type=merge -p "{
+      \"spec\": {
+        \"type\": \"NodePort\",
+        \"ports\": [
+          {\"name\": \"http\", \"port\": 80, \"protocol\": \"TCP\", \"targetPort\": 8080},
+          {\"name\": \"https\", \"port\": 443, \"protocol\": \"TCP\", \"targetPort\": 8080, \"nodePort\": ${argocd_nodeport}}
+        ]
+      }
+    }"
   fi
 
   if ! docker ps --filter "name=k3d-${CLUSTER_NAME}-serverlb" --format '{{.Ports}}' \

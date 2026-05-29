@@ -42,12 +42,13 @@ curl -s -X PUT \
 echo "Updated to $TAG in GitLab"
 '
 
-# Trigger ArgoCD sync
-kubectl patch app playground -n argocd --type merge \
-  -p '{"metadata":{"annotations":{"argocd.argoproj.io/compare-result":"unknown"}}}' > /dev/null 2>&1
+# Trigger Argo CD refresh and wait for sync (automated syncPolicy applies the new image)
+kubectl annotate application playground -n argocd \
+  argocd.argoproj.io/refresh=hard --overwrite >/dev/null
 
-# Wait for sync and delete pod to restart with new image
-sleep 2
-kubectl delete pod -n dev -l app=playground --ignore-not-found > /dev/null 2>&1
-
-echo "Synced and pod restarted — app will show $TAG in ~5 seconds"
+if kubectl wait --for=jsonpath='{.status.sync.status}'=Synced \
+    application/playground -n argocd --timeout=120s >/dev/null 2>&1; then
+  echo "Argo CD synced — app will show $TAG shortly (curl http://localhost:8888/)"
+else
+  echo "GitLab updated; Argo CD sync still in progress (check: kubectl get app playground -n argocd)"
+fi

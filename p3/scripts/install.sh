@@ -21,7 +21,9 @@ setup_kubeconfig() {
   if [ -n "${REAL_USER}" ] && [ "${REAL_USER}" != "root" ]; then
     export KUBECONFIG="/home/${REAL_USER}/.kube/config"
     mkdir -p "$(dirname "${KUBECONFIG}")"
-    chown -R "${REAL_USER}:${REAL_USER}" "$(dirname "${KUBECONFIG}")"
+    if [ -f "${KUBECONFIG}" ]; then
+      chown "${REAL_USER}:${REAL_USER}" "${KUBECONFIG}" 2>/dev/null || true
+    fi
   else
     export KUBECONFIG="${HOME}/.kube/config"
     mkdir -p "${HOME}/.kube"
@@ -80,6 +82,7 @@ create_cluster() {
   echo "[install] Creating K3d cluster '${CLUSTER_NAME}'..."
   k3d cluster create "${CLUSTER_NAME}" \
     --port "8888:30888@loadbalancer" \
+    --port "8080:30443@loadbalancer" \
     --wait
 
   k3d kubeconfig merge "${CLUSTER_NAME}" --kubeconfig-merge-default
@@ -98,6 +101,33 @@ ensure_cluster() {
   fi
 
   create_cluster
+}
+
+expose_argocd_on_host() {
+  local argocd_nodeport=30443
+  local svc_type current_nodeport
+
+  echo "[install] Exposing Argo CD on host port 8080 (k3d NodePort, host browser)..."
+  svc_type=$(kubectl get svc argocd-server -n argocd -o jsonpath='{.spec.type}')
+  current_nodeport=$(kubectl get svc argocd-server -n argocd \
+    -o jsonpath='{.spec.ports[?(@.name=="https")].nodePort}')
+
+  if [ "${svc_type}" != "NodePort" ] || [ "${current_nodeport}" != "${argocd_nodeport}" ]; then
+    kubectl patch svc argocd-server -n argocd --type=merge -p "{
+      \"spec\": {
+        \"type\": \"NodePort\",
+        \"ports\": [
+          {\"name\": \"http\", \"port\": 80, \"protocol\": \"TCP\", \"targetPort\": 8080},
+          {\"name\": \"https\", \"port\": 443, \"protocol\": \"TCP\", \"targetPort\": 8080, \"nodePort\": ${argocd_nodeport}}
+        ]
+      }
+    }"
+  fi
+
+  if ! docker ps --filter "name=k3d-${CLUSTER_NAME}-serverlb" --format '{{.Ports}}' \
+      | grep -q '8080->30443'; then
+    k3d cluster edit "${CLUSTER_NAME}" --port-add "8080:30443@loadbalancer"
+  fi
 }
 
 # ── 5. ArgoCD + namespaces ───────────────────────────────────────────────────
@@ -156,6 +186,7 @@ install_argocd() {
     -f https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/install.yaml
 
   wait_argocd_ready
+  expose_argocd_on_host
 
   echo "[install] Applying ArgoCD Application..."
   kubectl apply -f "${CONFS_DIR}/application.yaml"
@@ -179,9 +210,8 @@ install_argocd() {
   echo "   http://localhost:8888/"
   echo "   curl http://127.0.0.1:8888/"
   echo ""
-  echo " Argo CD UI is NOT on :8080 until you port-forward:"
-  echo "   kubectl port-forward svc/argocd-server -n argocd 8080:443"
-  echo "   https://localhost:8080/  (user: admin, accept TLS warning)"
+  echo " Argo CD UI (host browser — accept self-signed cert):"
+  echo "   https://localhost:8080/  (user: admin)"
   echo ""
   echo " Or run: ./p3/scripts/access.sh"
   echo ""

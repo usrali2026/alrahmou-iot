@@ -3,7 +3,7 @@
 #  Open / verify Part 3 endpoints on THIS machine (where k3d runs).
 #
 #  App (playground):  http://localhost:8888/   — published by k3d at install
-#  Argo CD UI:        https://localhost:8080/ — requires port-forward (below)
+#  Argo CD UI:        https://localhost:8080/ — published by k3d at install
 # ─────────────────────────────────────────────────────────────────────────────
 set -euo pipefail
 
@@ -43,27 +43,12 @@ fi
 
 echo ""
 echo "=== Argo CD UI (port 8080) ==="
-if ss -tln 2>/dev/null | grep -q ':8080 '; then
-  echo "Port 8080 already in use (port-forward may be running)."
-  echo "Open: https://localhost:8080/  (user: admin)"
+if curl -skf --max-time 5 https://127.0.0.1:8080/ >/dev/null; then
+  echo " UI OK — https://localhost:8080/  (user: admin)"
+  kubectl -n argocd get secret argocd-initial-admin-secret \
+    -o jsonpath="{.data.password}" 2>/dev/null | base64 -d && echo
 else
-  echo "Argo CD is NOT exposed on :8080 by default."
-  echo "Run in a separate terminal (leave it running):"
-  echo "  kubectl port-forward svc/argocd-server -n argocd 8080:443"
-  echo "Then open: https://localhost:8080/  (accept self-signed cert, user: admin)"
-  echo ""
-  read -r -p "Start port-forward now in background? [y/N] " ans
-  if [[ "${ans}" =~ ^[yY]$ ]]; then
-    pkill -f 'port-forward.*argocd-server' 2>/dev/null || true
-    kubectl port-forward svc/argocd-server -n argocd 8080:443 >/tmp/argocd-pf.log 2>&1 &
-    sleep 2
-    if ss -tln 2>/dev/null | grep -q ':8080 '; then
-      echo "Port-forward started. Open https://localhost:8080/"
-      kubectl -n argocd get secret argocd-initial-admin-secret \
-        -o jsonpath="{.data.password}" 2>/dev/null | base64 -d && echo
-    else
-      echo "Port-forward failed. See /tmp/argocd-pf.log"
-      cat /tmp/argocd-pf.log 2>/dev/null || true
-    fi
-  fi
+  echo "WARN: Argo CD not reachable on :8080."
+  echo "Re-run: ./p3/scripts/install.sh  (or expose via k3d NodePort 30443)"
+  kubectl get svc argocd-server -n argocd 2>/dev/null || true
 fi

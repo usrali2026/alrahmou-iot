@@ -61,7 +61,7 @@ print_bonus_ready() {
   echo " Bonus ready"
   echo " GitLab    : http://gitlab.localhost:8181  (root + password below)"
   echo " App       : http://localhost:8888/"
-  echo " Argo CD   : https://localhost:8080/"
+  echo " Argo CD   : https://127.0.0.1:8080/"
   echo "══════════════════════════════════════════════════════════════════"
   echo ""
   echo " Root password: ${ROOT_PASSWORD}"

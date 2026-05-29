@@ -10,12 +10,15 @@ fi
 
 CLUSTER_NAME="iot"
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+BONUS_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+
 if ! k3d cluster list 2>/dev/null | awk '{print $1}' | grep -qx "${CLUSTER_NAME}"; then
   echo "No k3d cluster '${CLUSTER_NAME}' — bonus is not installed yet."
   echo ""
   echo "Run first (10–20 min, needs sudo for /etc/hosts):"
-  echo "  cd /media/ali/DEVWORK/projects/Devops/iot"
-  echo "  sudo bash ./bonus/scripts/install.sh"
+  echo "  cd ${BONUS_ROOT}"
+  echo "  bash scripts/setup.sh"
   exit 1
 fi
 
@@ -31,6 +34,10 @@ curl -sf --max-time 5 http://gitlab.localhost:8181/-/health && echo " OK" || ech
 echo ""
 echo "=== App ==="
 curl -sf http://127.0.0.1:8888/ && echo || echo " not ready on :8888"
+
+echo ""
+echo "=== Argo CD ==="
+curl -skf --max-time 5 https://127.0.0.1:8080/ >/dev/null && echo " UI OK (https://localhost:8080/)" || echo " UI not ready on :8080"
 
 echo ""
 echo "=== Argo CD Application ==="

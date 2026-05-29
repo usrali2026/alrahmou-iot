@@ -13,7 +13,7 @@ PAT=$(kubectl get secret gitlab-iot-repo -n argocd -o jsonpath="{.data.password}
 # Update file in GitLab and sync
 kubectl exec -n gitlab deploy/gitlab-toolbox -- env PAT="$PAT" TAG="$TAG" bash -c '
 API="http://gitlab-webservice-default.gitlab.svc.cluster.local:8181/api/v4"
-PROJ="1"
+PROJ="root%2Fiot"
 
 # Get current file
 CONTENT=$(curl -s -H "PRIVATE-TOKEN: $PAT" "$API/projects/$PROJ/repository/files/deployment.yaml?ref=main" | python3 -c "import sys,json,base64; print(base64.b64decode(json.load(sys.stdin)[\"content\"]).decode())")
@@ -27,7 +27,7 @@ fi
 
 # Check if change is needed
 if [[ "$CONTENT" == "$NEWCONTENT" ]]; then
-  echo "Already at v$TAG"
+  echo "Already at $TAG"
   exit 0
 fi
 

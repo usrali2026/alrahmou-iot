@@ -240,21 +240,12 @@ EOF
 apply_security_settings() {
   echo "[gitlab_init] Disabling public sign-ups and Web IDE single-origin fallback..."
 
-  cat > /tmp/gitlab-security-settings.json <<EOF
-{
-  "signup_enabled": false,
-  "vscode_extension_marketplace_single_origin_fallback_enabled": false
-}
-EOF
-
   kubectl exec -n gitlab deploy/gitlab-toolbox -- \
     curl -sS --request PUT \
       --header "PRIVATE-TOKEN: ${PAT}" \
       --header "Content-Type: application/json" \
-      --data @/tmp/gitlab-security-settings.json \
+      --data '{"signup_enabled":false,"vscode_extension_marketplace_single_origin_fallback_enabled":false}' \
       "${GITLAB_INTERNAL}/api/v4/application/settings" >/dev/null
-
-  rm -f /tmp/gitlab-security-settings.json
 
   echo "[gitlab_init] GitLab security settings updated."
 }
@@ -267,16 +258,28 @@ apply_argocd_app() {
 }
 
 # ── Step 8: Summary ───────────────────────────────────────────────────────────
+get_argocd_password() {
+  ARGOCD_PASSWORD=$(kubectl get secret argocd-initial-admin-secret \
+    -n argocd \
+    -o jsonpath='{.data.password}' | base64 -d)
+}
+
 print_summary() {
+  get_argocd_password
   echo ""
-  echo "──────────────────────────────────────────────────────────────────"
-  echo " GitLab"
-  echo "  URL      : ${GITLAB_EXTERNAL}"
-  echo "   User     : root"
-  echo "   Password : ${ROOT_PASSWORD}"
-  echo "   Repo     : ${GITLAB_EXTERNAL}/root/${PROJECT_NAME}"
+  echo "══════════════════════════════════════════════════════════════════"
+  echo " Bonus ready"
+  echo " GitLab    : ${GITLAB_EXTERNAL}  (root + password below)"
+  echo " App       : http://localhost:8888/"
+  echo " Argo CD   : https://localhost:8080/  (host browser; accept self-signed cert)"
+  echo "══════════════════════════════════════════════════════════════════"
   echo ""
-  echo " Clone (from host):"
+  echo " Root password: ${ROOT_PASSWORD}"
+  echo " ArgoCD user : admin"
+  echo " ArgoCD pass : ${ARGOCD_PASSWORD}"
+  echo ""
+  echo " Repo: ${GITLAB_EXTERNAL}/root/${PROJECT_NAME}"
+  echo " Clone:"
   echo "  git clone http://root:${ROOT_PASSWORD}@gitlab.localhost:8181/root/${PROJECT_NAME}.git"
   echo ""
   echo " Version bump workflow (evaluation demo):"
@@ -287,8 +290,7 @@ print_summary() {
   echo ""
   echo " ArgoCD Application:"
   echo "   kubectl get app playground -n argocd"
-  echo "   kubectl port-forward svc/argocd-server -n argocd 8080:443"
-  echo "──────────────────────────────────────────────────────────────────"
+  echo "   bash scripts/toggle_playground_tag.sh v1|v2"
 }
 
 # ── Main ─────────────────────────────────────────────────────────────────────

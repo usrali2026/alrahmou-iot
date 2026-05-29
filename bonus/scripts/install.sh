@@ -4,7 +4,7 @@
 #  Docker · kubectl · Helm · K3d · Argo CD · GitLab CE (Helm)
 #  GitLab replaces GitHub as the GitOps source (ns: gitlab, dev, argocd)
 #
-#  Ports: 8888 → playground app | 8181 → GitLab UI (gitlab.localhost)
+#  Ports: 8888 → playground app | 8181 → GitLab UI (gitlab.localhost) | 8080 → Argo CD
 #  Run: sudo ./bonus/scripts/install.sh  (needs root for /etc/hosts)
 # ─────────────────────────────────────────────────────────────────────────────
 set -euo pipefail
@@ -88,6 +88,7 @@ create_cluster() {
   k3d cluster create "${CLUSTER_NAME}" \
     --port "8888:30888@loadbalancer" \
     --port "8181:80@loadbalancer" \
+    --port "8080:30443@loadbalancer" \
     --wait
   k3d kubeconfig merge "${CLUSTER_NAME}" --kubeconfig-merge-default
   fix_kubeconfig_ownership
@@ -121,6 +122,21 @@ install_argocd() {
     kubectl get pods -n argocd
     kubectl wait --for=condition=ready --timeout=300s \
       pod -l app.kubernetes.io/part-of=argocd -n argocd
+  fi
+}
+
+expose_argocd_on_host() {
+  echo "[install] Exposing Argo CD on host port 8080 (k3d NodePort, reachable from host browser)..."
+  if [[ "$(kubectl get svc argocd-server -n argocd -o jsonpath='{.spec.type}')" != "NodePort" ]]; then
+    kubectl patch svc argocd-server -n argocd --type='json' -p='[
+      {"op":"replace","path":"/spec/type","value":"NodePort"},
+      {"op":"add","path":"/spec/ports/1/nodePort","value":30443}
+    ]'
+  fi
+
+  if ! docker ps --filter "name=k3d-${CLUSTER_NAME}-serverlb" --format '{{.Ports}}' \
+      | grep -q '8080->30443'; then
+    k3d cluster edit "${CLUSTER_NAME}" --port-add "8080:30443@loadbalancer"
   fi
 }
 
@@ -163,6 +179,7 @@ if ! kubectl get deployment argocd-server -n argocd &>/dev/null; then
 else
   echo "[install] Argo CD already installed."
 fi
+expose_argocd_on_host
 
 if ! helm list -n gitlab 2>/dev/null | grep -q "^gitlab"; then
   install_gitlab

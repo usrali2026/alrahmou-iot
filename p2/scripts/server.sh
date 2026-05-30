@@ -7,20 +7,22 @@ MANIFEST_DIR="/home/vagrant/confs"
 echo "[SERVER] provision v2 — waiting for eth1, no helm CLI"
 echo "[SERVER] Updating packages..."
 export DEBIAN_FRONTEND=noninteractive
-apt-get update -y >/dev/null
-apt-get install -y curl >/dev/null
+if ! command -v curl >/dev/null 2>&1; then
+  apt-get update -y >/dev/null
+  apt-get install -y curl >/dev/null
+fi
 
 detect_net_iface() {
   local iface candidate
 
   # Vagrant private_network may appear shortly after boot — never use lo.
-  for _ in $(seq 1 45); do
+  for _ in $(seq 1 15); do
     iface=$(ip -o -4 addr show | awk -v ip="${SERVER_IP}" '$4 ~ "^" ip "\\/" {print $2; exit}')
     if [[ -n "${iface}" && "${iface}" != "lo" ]]; then
       echo "${iface}"
       return 0
     fi
-    sleep 2
+    sleep 1
   done
 
   for candidate in eth1 enp0s8 enp0s9 enp0s6; do
@@ -57,26 +59,25 @@ fi
 export KUBECONFIG=/etc/rancher/k3s/k3s.yaml
 
 echo "[SERVER] Waiting for node to be Ready..."
-for _ in $(seq 1 40); do
-  kubectl get nodes 2>/dev/null | grep -q " Ready" && break
-  sleep 3
-done
+kubectl wait --for=condition=Ready node --all --timeout=45s >/dev/null 2>&1 || {
+  kubectl get nodes 2>/dev/null || true
+}
 
 wait_for_traefik() {
   echo "[SERVER] Waiting for Traefik (k3s helm-controller, no helm CLI needed)..."
   local i
-  for i in $(seq 1 120); do
+  for i in $(seq 1 60); do
     if kubectl get svc -n kube-system traefik &>/dev/null; then
       echo "[SERVER] Traefik service is up."
       return 0
     fi
     # Restart stuck k3s traefik helm jobs once (common on slow first boot)
-    if [[ "${i}" -eq 36 ]]; then
+    if [[ "${i}" -eq 20 ]]; then
       echo "[SERVER] Nudging Traefik helm jobs..."
       kubectl delete job -n kube-system helm-install-traefik helm-install-traefik-crd \
         --ignore-not-found --force --grace-period=0 2>/dev/null || true
     fi
-    sleep 5
+    sleep 2
   done
   echo "[SERVER] ERROR: Traefik not ready." >&2
   kubectl get pods,jobs -n kube-system 2>/dev/null | grep traefik || true
@@ -86,12 +87,12 @@ wait_for_traefik() {
 wait_for_port80() {
   echo "[SERVER] Waiting for listener on :80..."
   local i
-  for i in $(seq 1 60); do
+  for i in $(seq 1 10); do
     if ss -tln | grep -q ':80 '; then
       echo "[SERVER] Port 80 is listening."
       return 0
     fi
-    sleep 5
+    sleep 1
   done
   return 1
 }
@@ -109,21 +110,22 @@ kubectl apply -f "${MANIFEST_DIR}/app3.yaml" -n webapps
 kubectl apply -f "${MANIFEST_DIR}/ingress.yaml" -n webapps
 
 echo "[SERVER] Waiting for rollouts..."
-kubectl rollout status deployment/app1-deployment -n webapps --timeout=180s
-kubectl rollout status deployment/app2-deployment -n webapps --timeout=180s
-kubectl rollout status deployment/app3-deployment -n webapps --timeout=180s
+kubectl rollout status deployment/app1-deployment -n webapps --timeout=90s || true
+kubectl rollout status deployment/app2-deployment -n webapps --timeout=90s || true
+kubectl rollout status deployment/app3-deployment -n webapps --timeout=90s || true
 
 kubectl get pods,svc,ingress -n webapps
 
 check_host_route() {
   local host="$1" expected="$2" response attempts=40
+  attempts=10
   while [[ "${attempts}" -gt 0 ]]; do
     response=$(curl -sf -H "Host: ${host}" "http://${SERVER_IP}/" 2>/dev/null || true)
     if echo "${response}" | grep -qi "${expected}"; then
       echo "[SERVER] OK: Host ${host} -> $(echo "${response}" | grep -oi '<h1>.*</h1>' | head -1)"
       return 0
     fi
-    sleep 3
+    sleep 1
     attempts=$((attempts - 1))
   done
   echo "[SERVER] ERROR: Host ${host} expected '${expected}', got: ${response:-empty}" >&2

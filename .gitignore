@@ -1,1 +1,2 @@
 .argocd-port-forward.pid
+**/.vagrant/

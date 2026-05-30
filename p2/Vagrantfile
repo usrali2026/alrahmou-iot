@@ -5,10 +5,15 @@ LOGIN = "alrahmou"
 
 Vagrant.configure("2") do |config|
   config.vm.box = "generic/ubuntu2204"
+  config.vm.box_check_update = false
+  config.vm.synced_folder ".", "/vagrant", disabled: true
 
   config.vm.define "#{LOGIN}S" do |server|
     server.vm.hostname = "#{LOGIN}S"
-    server.vm.network "private_network", ip: "192.168.56.110"
+    server.vm.network "private_network",
+      ip: "192.168.56.110",
+      libvirt__network_name: "p20",
+      libvirt__dhcp_enabled: false
 
     server.vm.provider "virtualbox" do |v|
       v.name   = "#{LOGIN}S"
@@ -16,7 +21,30 @@ Vagrant.configure("2") do |config|
       v.cpus   = 2
     end
 
-    server.vm.provision "file", source: "confs", destination: "/home/vagrant/"
-    server.vm.provision "shell", path: "scripts/install.sh"
+    server.vm.provider "libvirt" do |v|
+      v.cpus   = 2
+      v.memory = 2048
+      v.machine_virtual_size = 128
+    end
+
+    server.vm.provision "file", source: "confs", destination: "/home/vagrant/confs"
+
+    # Wait until Vagrant has configured eth1 with the private IP (before K3s install)
+    server.vm.provision "shell", inline: <<-SHELL
+      set -e
+      echo "[NETWORK] Waiting for 192.168.56.110 on eth1..."
+      for i in $(seq 1 60); do
+        if ip -o -4 addr show eth1 2>/dev/null | grep -q '192.168.56.110/'; then
+          echo "[NETWORK] eth1 ready: $(ip -o -4 addr show eth1 | grep 192.168.56.110)"
+          exit 0
+        fi
+        sleep 2
+      done
+      echo "[NETWORK] ERROR: 192.168.56.110 not on eth1 after 120s" >&2
+      ip -o -4 addr show >&2
+      exit 1
+    SHELL
+
+    server.vm.provision "shell", path: "scripts/server.sh"
   end
 end

@@ -6,18 +6,30 @@ K3S_TOKEN="k3s-iot-shared-token"
 
 detect_iface() {
   local iface
-  iface="$(ip -o -4 addr show | awk '$4 ~ /^192\.168\.56\./ {print $2; exit}')"
-  if [ -z "${iface}" ]; then
-    iface="$(ip route show default 2>/dev/null | awk '{print $5; exit}')"
-  fi
-  echo "${iface}"
+
+  for _ in $(seq 1 60); do
+    iface="$(ip -o -4 addr show | awk -v ip="${SERVER_IP}" '$4 ~ "^" ip "\\/" {print $2; exit}')"
+    if [ -n "${iface}" ]; then
+      echo "${iface}"
+      return 0
+    fi
+    sleep 1
+  done
+
+  return 1
 }
 
-NET_IFACE="$(detect_iface)"
-
-if [ -z "${NET_IFACE}" ]; then
-  echo "[server] unable to detect network interface" >&2
+if ! NET_IFACE="$(detect_iface)"; then
+  echo "[server] unable to detect network interface for ${SERVER_IP}" >&2
+  ip -o -4 addr show >&2 || true
   exit 1
+fi
+
+export DEBIAN_FRONTEND=noninteractive
+if ! command -v curl >/dev/null 2>&1; then
+  echo "[server] Installing curl..."
+  apt-get update -y >/dev/null
+  apt-get install -y curl >/dev/null
 fi
 
 echo "[server] Installing K3s in controller mode..."

@@ -13,7 +13,10 @@ Vagrant.configure("2") do |config|
   # ── Server (controller) ──────────────────────
   config.vm.define "#{LOGIN}S" do |server|
     server.vm.hostname = "#{LOGIN}S"
-    server.vm.network "private_network", ip: "192.168.56.110"
+    server.vm.network "private_network",
+      ip: "192.168.56.110",
+      libvirt__network_name: "p1",
+      libvirt__dhcp_enabled: false
 
     server.vm.provider "virtualbox" do |v|
       v.name   = "#{LOGIN}S"
@@ -26,13 +29,31 @@ Vagrant.configure("2") do |config|
       v.memory = 1024
     end
 
+    server.vm.provision "shell", inline: <<-SHELL
+      set -e
+      echo "[network] Waiting for 192.168.56.110..."
+      for i in $(seq 1 60); do
+        if ip -o -4 addr show | grep -q '192.168.56.110/'; then
+          ip -o -4 addr show | grep '192.168.56.110/'
+          exit 0
+        fi
+        sleep 2
+      done
+      echo "[network] ERROR: 192.168.56.110 not configured after 120s" >&2
+      ip -o -4 addr show >&2
+      exit 1
+    SHELL
+
     server.vm.provision "shell", path: "scripts/server.sh"
   end
 
   # ── Worker (agent) ───────────────────────────
   config.vm.define "#{LOGIN}SW" do |worker|
     worker.vm.hostname = "#{LOGIN}SW"
-    worker.vm.network "private_network", ip: "192.168.56.111"
+    worker.vm.network "private_network",
+      ip: "192.168.56.111",
+      libvirt__network_name: "p1",
+      libvirt__dhcp_enabled: false
 
     worker.vm.provider "virtualbox" do |v|
       v.name   = "#{LOGIN}SW"
@@ -44,6 +65,21 @@ Vagrant.configure("2") do |config|
       v.cpus   = 1
       v.memory = 1024
     end
+
+    worker.vm.provision "shell", inline: <<-SHELL
+      set -e
+      echo "[network] Waiting for 192.168.56.111..."
+      for i in $(seq 1 60); do
+        if ip -o -4 addr show | grep -q '192.168.56.111/'; then
+          ip -o -4 addr show | grep '192.168.56.111/'
+          exit 0
+        fi
+        sleep 2
+      done
+      echo "[network] ERROR: 192.168.56.111 not configured after 120s" >&2
+      ip -o -4 addr show >&2
+      exit 1
+    SHELL
 
     worker.vm.provision "shell", path: "scripts/worker.sh"
   end

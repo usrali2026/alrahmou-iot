@@ -1,173 +1,232 @@
 #!/bin/bash
+# ─────────────────────────────────────────────────────────────────────────────
+#  Part 3 — install.sh
+#  Idempotent: safe to re-run; skips steps that are already done.
+#  Run as root (or with sudo).
+#
+#  Before first run, publish the GitOps manifest:
+#    ./p3/scripts/push-gitops.sh
+# ─────────────────────────────────────────────────────────────────────────────
 set -euo pipefail
 
-echo "=========================================="
-echo "IoT Part 3: K3d + Argo CD Installation"
-echo "=========================================="
-echo ""
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+CONFS_DIR="${SCRIPT_DIR}/../confs"
+CLUSTER_NAME="iot"
+GITOPS_REPO="${GITOPS_REPO:-https://github.com/usrali2026/alrahmou-iot.git}"
+APP_NAME="playground"
 
-# Colors for output
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-NC='\033[0m' # No Color
-
-log_info() {
-    echo -e "${GREEN}[INFO]${NC} $1"
+# Use the invoking user's kubeconfig when run via sudo.
+setup_kubeconfig() {
+  REAL_USER="${SUDO_USER:-${USER}}"
+  if [ -n "${REAL_USER}" ] && [ "${REAL_USER}" != "root" ]; then
+    export KUBECONFIG="/home/${REAL_USER}/.kube/config"
+    mkdir -p "$(dirname "${KUBECONFIG}")"
+    if [ -f "${KUBECONFIG}" ]; then
+      chown "${REAL_USER}:${REAL_USER}" "${KUBECONFIG}" 2>/dev/null || true
+    fi
+  else
+    export KUBECONFIG="${HOME}/.kube/config"
+    mkdir -p "${HOME}/.kube"
+  fi
 }
 
-log_warn() {
-    echo -e "${YELLOW}[WARN]${NC} $1"
+# ── 1. Docker ─────────────────────────────────────────────────────────────────
+install_docker() {
+  echo "[install] Installing Docker..."
+  apt-get update -qq
+  apt-get install -y -qq ca-certificates curl gnupg lsb-release
+
+  install -m 0755 -d /etc/apt/keyrings
+  curl -fsSL https://download.docker.com/linux/ubuntu/gpg \
+    | gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+  chmod a+r /etc/apt/keyrings/docker.gpg
+
+  echo \
+    "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] \
+    https://download.docker.com/linux/ubuntu \
+    $(. /etc/os-release && echo "${VERSION_CODENAME}") stable" \
+    | tee /etc/apt/sources.list.d/docker.list > /dev/null
+
+  apt-get update -qq
+  apt-get install -y -qq docker-ce docker-ce-cli containerd.io docker-buildx-plugin
+
+  systemctl enable --now docker
+
+  REAL_USER="${SUDO_USER:-${USER}}"
+  if [ -n "${REAL_USER}" ] && [ "${REAL_USER}" != "root" ]; then
+    usermod -aG docker "${REAL_USER}"
+    echo "[install] Added ${REAL_USER} to the docker group (re-login to take effect)."
+  fi
 }
 
-log_error() {
-    echo -e "${RED}[ERROR]${NC} $1"
+# ── 2. kubectl ────────────────────────────────────────────────────────────────
+install_kubectl() {
+  echo "[install] Installing kubectl..."
+  KUBE_VERSION=$(curl -sL https://dl.k8s.io/release/stable.txt)
+  curl -sLo /tmp/kubectl \
+    "https://dl.k8s.io/release/${KUBE_VERSION}/bin/linux/amd64/kubectl"
+  install -o root -g root -m 0755 /tmp/kubectl /usr/local/bin/kubectl
+  rm -f /tmp/kubectl
+  echo "[install] kubectl $(kubectl version --client -o yaml 2>/dev/null | grep gitVersion | head -1 || true)"
 }
 
-# Detect OS
-if [[ "$OSTYPE" == "linux-gnu"* ]]; then
-    OS="linux"
-    if [ -f /etc/os-release ]; then
-        . /etc/os-release
-        DISTRO=$ID
+# ── 3. K3d ───────────────────────────────────────────────────────────────────
+install_k3d() {
+  echo "[install] Installing K3d..."
+  curl -s https://raw.githubusercontent.com/k3d-io/k3d/main/install.sh | bash
+  echo "[install] K3d $(k3d version | head -1)"
+}
+
+# ── 4. K3d cluster ───────────────────────────────────────────────────────────
+create_cluster() {
+  echo "[install] Creating K3d cluster '${CLUSTER_NAME}'..."
+  k3d cluster create "${CLUSTER_NAME}" \
+    --port "8888:30888@loadbalancer" \
+    --port "8080:30443@loadbalancer" \
+    --wait
+
+  k3d kubeconfig merge "${CLUSTER_NAME}" --kubeconfig-merge-default
+  echo "[install] Cluster nodes:"
+  kubectl get nodes -o wide
+}
+
+ensure_cluster() {
+  setup_kubeconfig
+
+  if k3d cluster list 2>/dev/null | awk '{print $1}' | grep -qx "${CLUSTER_NAME}"; then
+    echo "[install] Cluster '${CLUSTER_NAME}' already exists."
+    echo "[install] If curl :8888 fails, recreate: k3d cluster delete ${CLUSTER_NAME}"
+    k3d kubeconfig merge "${CLUSTER_NAME}" --kubeconfig-merge-default
+    return
+  fi
+
+  create_cluster
+}
+
+expose_argocd_on_host() {
+  local argocd_nodeport=30443
+  local svc_type current_nodeport
+
+  echo "[install] Exposing Argo CD on host port 8080 (k3d NodePort, host browser)..."
+  svc_type=$(kubectl get svc argocd-server -n argocd -o jsonpath='{.spec.type}')
+  current_nodeport=$(kubectl get svc argocd-server -n argocd \
+    -o jsonpath='{.spec.ports[?(@.name=="https")].nodePort}')
+
+  if [ "${svc_type}" != "NodePort" ] || [ "${current_nodeport}" != "${argocd_nodeport}" ]; then
+    kubectl patch svc argocd-server -n argocd --type=merge -p "{
+      \"spec\": {
+        \"type\": \"NodePort\",
+        \"ports\": [
+          {\"name\": \"http\", \"port\": 80, \"protocol\": \"TCP\", \"targetPort\": 8080},
+          {\"name\": \"https\", \"port\": 443, \"protocol\": \"TCP\", \"targetPort\": 8080, \"nodePort\": ${argocd_nodeport}}
+        ]
+      }
+    }"
+  fi
+
+  if ! docker ps --filter "name=k3d-${CLUSTER_NAME}-serverlb" --format '{{.Ports}}' \
+      | grep -q '8080->30443'; then
+    k3d cluster edit "${CLUSTER_NAME}" --port-add "8080:30443@loadbalancer"
+  fi
+}
+
+# ── 5. ArgoCD + namespaces ───────────────────────────────────────────────────
+wait_argocd_ready() {
+  echo "[install] Waiting for core Argo CD components (up to 5 min)..."
+  kubectl wait --for=condition=available --timeout=300s \
+    deployment/argocd-server deployment/argocd-repo-server -n argocd
+  kubectl wait --for=condition=ready --timeout=300s \
+    pod -l app.kubernetes.io/name=argocd-application-controller -n argocd
+}
+
+wait_application_synced() {
+  echo "[install] Waiting for Application/${APP_NAME} to sync (up to 5 min)..."
+  local i sync health
+  for i in $(seq 1 60); do
+    sync=$(kubectl get application "${APP_NAME}" -n argocd \
+      -o jsonpath='{.status.sync.status}' 2>/dev/null || true)
+    health=$(kubectl get application "${APP_NAME}" -n argocd \
+      -o jsonpath='{.status.health.status}' 2>/dev/null || true)
+    if [ "${sync}" = "Synced" ] && [ "${health}" = "Healthy" ]; then
+      echo "[install] Application synced and healthy."
+      return 0
     fi
-elif [[ "$OSTYPE" == "darwin"* ]]; then
-    OS="macos"
-else
-    log_error "Unsupported OS: $OSTYPE"
-    exit 1
-fi
+    sleep 5
+  done
 
-log_info "Detected OS: $OS"
-[ ! -z "${DISTRO:-}" ] && log_info "Detected distribution: $DISTRO"
-echo ""
+  echo "[install] WARN: Application not Synced/Healthy yet."
+  kubectl get application "${APP_NAME}" -n argocd -o wide 2>/dev/null || true
+  echo "[install] Ensure the GitOps repo has deployment.yaml under p3/confs:"
+  echo "[install]   ${GITOPS_REPO}"
+  echo "[install] Run: ./p3/scripts/push-gitops.sh"
+  return 1
+}
 
-# ========================================
-# 1. Update package manager
-# ========================================
-log_info "Updating package manager..."
-if [ "$OS" == "linux" ]; then
-    if [ "$DISTRO" == "ubuntu" ] || [ "$DISTRO" == "debian" ]; then
-        sudo apt-get update -qq
-    elif [ "$DISTRO" == "centos" ] || [ "$DISTRO" == "fedora" ] || [ "$DISTRO" == "rhel" ]; then
-        sudo yum update -y -q > /dev/null 2>&1 || true
-    fi
-elif [ "$OS" == "macos" ]; then
-    if ! command -v brew &> /dev/null; then
-        log_info "Installing Homebrew..."
-        /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
-    fi
-    brew update -q
-fi
-echo ""
+verify_app() {
+  echo "[install] Checking http://localhost:8888/ ..."
+  if curl -sf --max-time 10 http://localhost:8888/; then
+    echo ""
+    echo "[install] App responds on :8888."
+    return 0
+  fi
+  echo "[install] WARN: No response on :8888 yet (pod may still be starting)."
+  kubectl get pods -n dev 2>/dev/null || true
+  return 1
+}
 
-# ========================================
-# 2. Install Docker
-# ========================================
-log_info "Installing Docker..."
-if command -v docker &> /dev/null; then
-    log_info "Docker is already installed: $(docker --version)"
-else
-    if [ "$OS" == "linux" ]; then
-        if [ "$DISTRO" == "ubuntu" ] || [ "$DISTRO" == "debian" ]; then
-            sudo apt-get install -y -qq docker.io
-            sudo usermod -aG docker $USER
-            log_warn "Docker group added to user. You may need to log out and back in, or run: 'newgrp docker'"
-        elif [ "$DISTRO" == "centos" ] || [ "$DISTRO" == "fedora" ] || [ "$DISTRO" == "rhel" ]; then
-            sudo yum install -y -q docker
-            sudo systemctl start docker
-            sudo systemctl enable docker
-            sudo usermod -aG docker $USER
-        fi
-    elif [ "$OS" == "macos" ]; then
-        log_error "Docker Desktop must be installed manually on macOS. Please visit: https://www.docker.com/products/docker-desktop"
-        exit 1
-    fi
-fi
-echo ""
+install_argocd() {
+  setup_kubeconfig
 
-# ========================================
-# 3. Install kubectl
-# ========================================
-log_info "Installing kubectl..."
-if command -v kubectl &> /dev/null; then
-    log_info "kubectl is already installed: $(kubectl version --client --short 2>/dev/null || echo 'version check skipped')"
-else
-    if [ "$OS" == "linux" ]; then
-        curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
-        sudo install -o root -g root -m 0755 kubectl /usr/local/bin/kubectl
-        rm kubectl
-    elif [ "$OS" == "macos" ]; then
-        brew install kubectl
-    fi
-fi
-echo ""
+  echo "[install] Creating namespaces: argocd, dev..."
+  kubectl create namespace argocd --dry-run=client -o yaml | kubectl apply -f -
+  kubectl create namespace dev    --dry-run=client -o yaml | kubectl apply -f -
 
-# ========================================
-# 4. Install K3d
-# ========================================
-log_info "Installing K3d..."
-if command -v k3d &> /dev/null; then
-    log_info "K3d is already installed: $(k3d --version)"
-else
-    curl -s https://raw.githubusercontent.com/k3d-io/k3d/main/install.sh | bash
-fi
-echo ""
+  echo "[install] Applying ArgoCD manifests..."
+  kubectl apply -n argocd --server-side --force-conflicts \
+    -f https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/install.yaml
 
-# ========================================
-# 5. Install Helm (optional but useful)
-# ========================================
-log_info "Installing Helm..."
-if command -v helm &> /dev/null; then
-    log_info "Helm is already installed: $(helm version --short 2>/dev/null || echo 'version check skipped')"
-else
-    if [ "$OS" == "linux" ]; then
-        curl https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
-    elif [ "$OS" == "macos" ]; then
-        brew install helm
-    fi
-fi
-echo ""
+  wait_argocd_ready
+  expose_argocd_on_host
 
-# ========================================
-# 6. Verify Docker daemon is running
-# ========================================
-log_info "Verifying Docker daemon..."
-if [ "$OS" == "linux" ]; then
-    if ! sudo systemctl is-active --quiet docker; then
-        log_info "Starting Docker daemon..."
-        sudo systemctl start docker
-    fi
-fi
+  echo "[install] Applying ArgoCD Application..."
+  kubectl apply -f "${CONFS_DIR}/application.yaml"
 
-if ! docker ps &> /dev/null; then
-    log_error "Docker is not accessible. Please ensure you have permission to access Docker."
-    log_error "Try: 'newgrp docker' or log out and back in."
-    exit 1
-fi
-log_info "Docker is accessible."
-echo ""
+  wait_application_synced || true
+  verify_app || true
 
-# ========================================
-# 7. Summary
-# ========================================
-echo ""
-echo "=========================================="
-echo "Installation Summary"
-echo "=========================================="
-echo -e "${GREEN}✓ Docker${NC}:        $(docker --version)"
-echo -e "${GREEN}✓ kubectl${NC}:       $(kubectl version --client --short 2>/dev/null | head -1)"
-echo -e "${GREEN}✓ K3d${NC}:           $(k3d --version)"
-echo -e "${GREEN}✓ Helm${NC}:          $(helm version --short 2>/dev/null || echo 'installed')"
-echo ""
+  REAL_USER="${SUDO_USER:-${USER}}"
+  echo ""
+  echo "──────────────────────────────────────────────────────"
+  echo " KUBECONFIG: ${KUBECONFIG}"
+  if [ -n "${REAL_USER}" ] && [ "${REAL_USER}" != "root" ]; then
+    echo " (kubectl as ${REAL_USER} uses this file after sudo install)"
+  fi
+  echo ""
+  echo " ArgoCD admin password:"
+  kubectl -n argocd get secret argocd-initial-admin-secret \
+    -o jsonpath="{.data.password}" 2>/dev/null | base64 -d && echo
+  echo ""
+  echo " App (open in browser — use http, port 8888):"
+  echo "   http://localhost:8888/"
+  echo "   curl http://127.0.0.1:8888/"
+  echo ""
+  echo " Argo CD UI (host browser — accept self-signed cert):"
+  echo "   https://localhost:8080/  (user: admin)"
+  echo ""
+  echo " Or run: ./p3/scripts/access.sh"
+  echo ""
+  echo " Upgrade demo (in GitOps repo, then push):"
+  echo "   sed -i 's/playground:v1/playground:v2/' p3/confs/deployment.yaml"
+  echo "   git commit -am v2 && git push"
+  echo "──────────────────────────────────────────────────────"
+}
 
-log_info "Next steps:"
-echo "  1. Start K3d cluster:  k3d cluster create iot"
-echo "  2. Verify cluster:     kubectl cluster-info"
-echo "  3. Install Argo CD:    kubectl create namespace argocd"
-echo "                         kubectl apply -n argocd -f https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/install.yaml"
-echo "  4. Access Argo CD:     kubectl port-forward -n argocd svc/argocd-server 8080:443"
-echo ""
-echo "=========================================="
-echo -e "${GREEN}Installation complete!${NC}"
-echo "=========================================="
+# ── Main ─────────────────────────────────────────────────────────────────────
+command -v docker  &>/dev/null || install_docker
+command -v kubectl &>/dev/null || install_kubectl
+command -v k3d     &>/dev/null || install_k3d
+
+ensure_cluster
+install_argocd
+
+echo "[install] All done."
